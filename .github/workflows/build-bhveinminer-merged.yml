@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - build/bhveinminer-rc4-merged-20260821
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:

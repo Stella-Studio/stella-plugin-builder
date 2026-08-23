@@ -1,0 +1,95 @@
+name: build-bhveinminer-hotfix1
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct verified merged source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          cat \
+            bhvm_payload/part00 \
+            bhvm_payload/part01 \
+            bhvm_payload/part02 \
+            bhvm_payload/part03 \
+            bhvm_payload/rem00 \
+            bhvm_fix/rem01_0 \
+            bhvm_fix/rem01_1 \
+            bhvm_fix/rem01_2 \
+            bhvm_payload/rem02 > work/source.b64
+          head -c 12000 bhvm_payload/rem03 >> work/source.b64
+          cat \
+            bhvm_payload/rem04 \
+            bhvm_payload/rem05 \
+            bhvm_payload/rem06 \
+            bhvm_payload/rem07 \
+            bhvm_fix/rem08_0 \
+            bhvm_fix/rem08_1 \
+            bhvm_fix/rem08_2 \
+            bhvm_fix/rem09_0 \
+            bhvm_fix/rem09_1 \
+            bhvm_fix/rem09_2 >> work/source.b64
+          base64 -d work/source.b64 > work/source.zip
+          echo 'bb53794a3c3588e4c9224001cebd6038eed8925c16a4615d05ec6242ab3993ac  work/source.zip' | sha256sum -c -
+          mkdir -p work/project
+          unzip -q work/source.zip -d work/unpacked
+          mv work/unpacked/BHVeinMiner work/project/BHVeinMiner
+
+      - name: Apply hotfix1
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d hotfix1.patch.b64 > work/hotfix1.patch
+          cd work/project/BHVeinMiner
+          git apply --check ../../hotfix1.patch
+          git apply ../../hotfix1.patch
+          grep -q '1.0.0-rc.4-merged-hotfix1' build.gradle.kts
+          grep -q 'protection-fail-closed: false' src/main/resources/config.yml
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Validate configs
+        working-directory: work/project/BHVeinMiner
+        run: python3 scripts/validate_config.py
+
+      - name: Build BHVeinMiner hotfix1
+        working-directory: work/project/BHVeinMiner
+        run: gradle clean build --no-daemon --stacktrace
+
+      - name: Verify compiled jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          jar_file=$(find work/project/BHVeinMiner/build/libs -maxdepth 1 -type f -name 'BHVeinMiner-*.jar' | head -1)
+          test -n "$jar_file"
+          mkdir -p out
+          cp "$jar_file" out/BHVeinMiner-1.0.0-rc.4-merged-hotfix1.jar
+          jar tf out/BHVeinMiner-1.0.0-rc.4-merged-hotfix1.jar | grep -q '^plugin.yml$'
+          jar tf out/BHVeinMiner-1.0.0-rc.4-merged-hotfix1.jar | grep -q '^net/breakhood/bhveinminer/BHVeinMinerPlugin.class$'
+          sha256sum out/BHVeinMiner-1.0.0-rc.4-merged-hotfix1.jar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BHVeinMiner-1.0.0-rc.4-merged-hotfix1
+          path: out/BHVeinMiner-1.0.0-rc.4-merged-hotfix1.jar
+          retention-days: 1
+          if-no-files-found: error

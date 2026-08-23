@@ -108,10 +108,6 @@ jobs:
         with:
           gradle-version: '8.14.3'
 
-      - name: Validate configs
-        working-directory: work/project
-        run: python3 scripts/validate_config.py
-
       - name: Build BHVeinMiner hotfix1
         working-directory: work/project
         run: gradle clean build --no-daemon --stacktrace

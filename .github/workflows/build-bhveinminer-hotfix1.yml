@@ -95,12 +95,6 @@ jobs:
           if 'hold-sneak:' not in s:
               s += "\nhold-sneak: '<prefix><yellow>Giữ <white>Shift</white> khi phá quặng để kích hoạt VeinMiner.'\n"
           p.write_text(s)
-
-          p = root / 'CHANGELOG.md'
-          s = p.read_text()
-          if not s.startswith('# 1.0.0-rc.4-merged-hotfix1'):
-              s = '# 1.0.0-rc.4-merged-hotfix1\n\n- Fix baseline permission deadlock and protection fail-closed startup lock.\n- Add exact vanilla pickaxe fallbacks and /bvm status diagnostics.\n\n' + s
-          p.write_text(s)
           PY
           grep -q '1.0.0-rc.4-merged-hotfix1' work/project/build.gradle.kts
           grep -q 'protection-fail-closed: false' work/project/src/main/resources/config.yml

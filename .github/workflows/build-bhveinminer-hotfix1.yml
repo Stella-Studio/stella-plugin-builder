@@ -47,16 +47,63 @@ jobs:
           unzip -q work/source.zip -d work/project
           test -f work/project/build.gradle.kts
 
-      - name: Apply hotfix1
+      - name: Apply hotfix1 deterministically
         shell: bash
         run: |
           set -euo pipefail
-          base64 -d hotfix1.patch.b64 > work/hotfix1.patch
-          cd work/project
-          git apply --check ../hotfix1.patch
-          git apply ../hotfix1.patch
-          grep -q '1.0.0-rc.4-merged-hotfix1' build.gradle.kts
-          grep -q 'protection-fail-closed: false' src/main/resources/config.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('work/project')
+
+          def replace(path, old, new):
+              p = root / path
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f'missing expected text in {path}: {old[:80]!r}')
+              p.write_text(s.replace(old, new))
+
+          replace('build.gradle.kts', 'version = "1.0.0-rc.4-merged"', 'version = "1.0.0-rc.4-merged-hotfix1"')
+          replace('src/main/resources/config.yml', '  # If a detected protection plugin hook cannot bind/query, deny VeinMiner instead of risking claim bypass.\n  protection-fail-closed: true', '  # If a protection hook cannot bind/query, fall back to real BlockBreakEvent + BFS parent barrier.\n  # This avoids globally disabling VeinMiner when WG/GP changes an API signature.\n  protection-fail-closed: false')
+
+          p = root / 'src/main/resources/plugin.yml'
+          s = p.read_text()
+          for old, new in {
+              '  bhveinminer.use:\n    default: false': '  bhveinminer.use:\n    default: true',
+              '  bhveinminer.gui:\n    default: false': '  bhveinminer.gui:\n    default: true',
+              '  bhveinminer.toggle:\n    default: false': '  bhveinminer.toggle:\n    default: true',
+              '  bhveinminer.mode:\n    default: false': '  bhveinminer.mode:\n    default: true',
+              '  bhveinminer.preview:\n    default: false': '  bhveinminer.preview:\n    default: true',
+              '  bhveinminer.cancel:\n    default: false': '  bhveinminer.cancel:\n    default: true',
+              '  bhveinminer.category.pickaxe:\n    default: false': '  bhveinminer.category.pickaxe:\n    default: true',
+              '  bhveinminer.activation.sneak:\n    default: false': '  bhveinminer.activation.sneak:\n    default: true',
+              '  bhveinminer.drop.normal:\n    default: false': '  bhveinminer.drop.normal:\n    default: true',
+          }.items():
+              if old not in s: raise SystemExit(f'missing plugin permission block: {old}')
+              s = s.replace(old, new)
+          p.write_text(s)
+
+          replace('src/main/resources/categories.yml', "    tools:\n      - '#minecraft:pickaxes'", "    tools:\n      - '#minecraft:pickaxes'\n      # Exact fallbacks in case a fork/datapack does not expose the vanilla item tag through Bukkit#getTag.\n      - minecraft:wooden_pickaxe\n      - minecraft:stone_pickaxe\n      - minecraft:iron_pickaxe\n      - minecraft:golden_pickaxe\n      - minecraft:diamond_pickaxe\n      - minecraft:netherite_pickaxe")
+
+          replace('src/main/java/net/breakhood/bhveinminer/config/ConfigManager.java', '''    public boolean canUseActivationMode(Player player, ActivationMode mode) {\n        if (mode == ActivationMode.OFF) return true;\n        return player.hasPermission("bhveinminer.activation." + mode.name().toLowerCase(Locale.ROOT));\n    }''', '''    public boolean canUseActivationMode(Player player, ActivationMode mode) {\n        if (mode == ActivationMode.OFF) return true;\n        if (mode == ActivationMode.SNEAK && player.hasPermission("bhveinminer.use")) return true;\n        return player.hasPermission("bhveinminer.activation." + mode.name().toLowerCase(Locale.ROOT));\n    }''')
+
+          replace('src/main/java/net/breakhood/bhveinminer/config/ConfigManager.java', '''        if (mode == null) return false;\n        String node = switch (mode) {''', '''        if (mode == null) return false;\n        if (mode == DropMode.NORMAL && player.hasPermission("bhveinminer.use")) return true;\n        String node = switch (mode) {''')
+
+          replace('src/main/java/net/breakhood/bhveinminer/command/BHVeinMinerCommand.java', '''        player.sendMessage(Text.mm("<gray> • Session: <white>" + plugin.miningService().hasSession(player.getUniqueId())));\n        player.sendMessage(Text.mm("<gray> • Tổng vein/block: <white>" + profile.totalVeins() + " / " + profile.totalBlocks()));''', '''        player.sendMessage(Text.mm("<gray> • Session: <white>" + plugin.miningService().hasSession(player.getUniqueId())));\n        player.sendMessage(Text.mm("<gray> • Perm use/pickaxe/sneak: <white>"\n                + player.hasPermission("bhveinminer.use") + " / "\n                + player.hasPermission("bhveinminer.category.pickaxe") + " / "\n                + player.hasPermission("bhveinminer.activation.sneak")));\n        player.sendMessage(Text.mm("<gray> • Rank cap: <white>" + plugin.configManager().permissionLimit(player)));\n        player.sendMessage(Text.mm("<gray> • Protection hooks: <white>" + String.join(", ", plugin.compatibilityManager().activeProtectionHooks())));\n        player.sendMessage(Text.mm("<gray> • Hook lỗi: <white>" + (plugin.compatibilityManager().failedProtectionHooks().isEmpty()\n                ? "none" : String.join(", ", plugin.compatibilityManager().failedProtectionHooks()))));\n        player.sendMessage(Text.mm("<gray> • Tổng vein/block: <white>" + profile.totalVeins() + " / " + profile.totalBlocks()));''')
+
+          p = root / 'src/main/resources/messages.yml'
+          s = p.read_text()
+          if 'hold-sneak:' not in s:
+              s += "\nhold-sneak: '<prefix><yellow>Giữ <white>Shift</white> khi phá quặng để kích hoạt VeinMiner.'\n"
+          p.write_text(s)
+
+          p = root / 'CHANGELOG.md'
+          s = p.read_text()
+          if not s.startswith('# 1.0.0-rc.4-merged-hotfix1'):
+              s = '# 1.0.0-rc.4-merged-hotfix1\n\n- Fix baseline permission deadlock and protection fail-closed startup lock.\n- Add exact vanilla pickaxe fallbacks and /bvm status diagnostics.\n\n' + s
+          p.write_text(s)
+          PY
+          grep -q '1.0.0-rc.4-merged-hotfix1' work/project/build.gradle.kts
+          grep -q 'protection-fail-closed: false' work/project/src/main/resources/config.yml
 
       - uses: actions/setup-java@v4
         with:

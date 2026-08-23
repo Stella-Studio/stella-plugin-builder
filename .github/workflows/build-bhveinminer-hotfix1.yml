@@ -44,17 +44,17 @@ jobs:
           base64 -d work/source.b64 > work/source.zip
           echo 'bb53794a3c3588e4c9224001cebd6038eed8925c16a4615d05ec6242ab3993ac  work/source.zip' | sha256sum -c -
           mkdir -p work/project
-          unzip -q work/source.zip -d work/unpacked
-          mv work/unpacked/BHVeinMiner work/project/BHVeinMiner
+          unzip -q work/source.zip -d work/project
+          test -f work/project/build.gradle.kts
 
       - name: Apply hotfix1
         shell: bash
         run: |
           set -euo pipefail
           base64 -d hotfix1.patch.b64 > work/hotfix1.patch
-          cd work/project/BHVeinMiner
-          git apply --check ../../hotfix1.patch
-          git apply ../../hotfix1.patch
+          cd work/project
+          git apply --check ../hotfix1.patch
+          git apply ../hotfix1.patch
           grep -q '1.0.0-rc.4-merged-hotfix1' build.gradle.kts
           grep -q 'protection-fail-closed: false' src/main/resources/config.yml
 
@@ -68,18 +68,18 @@ jobs:
           gradle-version: '8.14.3'
 
       - name: Validate configs
-        working-directory: work/project/BHVeinMiner
+        working-directory: work/project
         run: python3 scripts/validate_config.py
 
       - name: Build BHVeinMiner hotfix1
-        working-directory: work/project/BHVeinMiner
+        working-directory: work/project
         run: gradle clean build --no-daemon --stacktrace
 
       - name: Verify compiled jar
         shell: bash
         run: |
           set -euo pipefail
-          jar_file=$(find work/project/BHVeinMiner/build/libs -maxdepth 1 -type f -name 'BHVeinMiner-*.jar' | head -1)
+          jar_file=$(find work/project/build/libs -maxdepth 1 -type f -name 'BHVeinMiner-*.jar' | head -1)
           test -n "$jar_file"
           mkdir -p out
           cp "$jar_file" out/BHVeinMiner-1.0.0-rc.4-merged-hotfix1.jar
